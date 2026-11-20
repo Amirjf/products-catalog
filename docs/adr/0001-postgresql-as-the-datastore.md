@@ -1,6 +1,6 @@
 # PostgreSQL as the datastore
 
-The catalog holds a few hundred thousand products, reads vastly outnumber writes, and clients filter by category and price range with pagination. We store products in one PostgreSQL table. 300k products are about 52 MB of table and 88 MB of indexes, so the whole dataset sits in memory on a small instance; composite B-tree indexes answer "category + price range + sort" with keyset pagination in about a millisecond; read replicas scale reads; and the database itself enforces unique SKUs and non-negative prices.
+The catalog holds a few hundred thousand products, reads vastly outnumber writes, and clients filter by category and price range with pagination. We store products in one PostgreSQL table. 300k products are about 52 MB of table and 90 MB of indexes, so the whole dataset sits in memory on a small instance; composite B-tree indexes answer "category + price range + sort" with keyset pagination in about a millisecond; read replicas scale reads; and the database itself enforces unique SKUs and non-negative prices.
 
 ## Considered options
 

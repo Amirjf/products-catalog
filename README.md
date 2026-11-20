@@ -13,7 +13,7 @@ It is built for the stated load: a few hundred thousand products, far more reads
 docker compose up --build
 ```
 
-This starts PostgreSQL, applies the migrations, seeds 300,000 products, and starts the API on <http://localhost:3000>. The first start takes about 30 seconds.
+This starts PostgreSQL, applies the migrations, seeds 300,000 products, and starts the API on <http://localhost:3000>, with interactive docs at <http://localhost:3000/docs> (spec at `/openapi.json`). The first start takes about 30 seconds.
 
 ```sh
 curl "localhost:3000/v1/products?category=phones&minPriceCents=10000&maxPriceCents=20000&sort=price_asc&limit=5"
@@ -128,14 +128,14 @@ products
 
 Each combination of filter and sort has an index that returns rows already in order, with `id` as the tie-breaker:
 
-| Index                         | Serves                                               |
-| ----------------------------- | ---------------------------------------------------- |
-| `(created_at, id)`            | No category, sorted by newest                        |
-| `(price_cents, id)`           | No category, sorted by price, with or without range  |
-| `(category, created_at, id)`  | One category, sorted by newest                       |
-| `(category, price_cents, id)` | One category, sorted by price, with or without range |
+| Index                           | Serves                                               |
+| ------------------------------- | ---------------------------------------------------- |
+| `(created_at, id, price_cents)` | No category, sorted by newest, with or without range |
+| `(price_cents, id)`             | No category, sorted by price, with or without range  |
+| `(category, created_at, id)`    | One category, sorted by newest                       |
+| `(category, price_cents, id)`   | One category, sorted by price, with or without range |
 
-`price_desc` and `newest` scan these indexes backward, which is why both ORDER BY columns always go in the same direction. Four indexes make writes slower, which is the right trade when reads dominate. At 300k products the table is 52 MB and the indexes are 88 MB.
+`price_desc` and `newest` scan these indexes backward, which is why both ORDER BY columns always go in the same direction. Four indexes make writes slower, which is the right trade when reads dominate. At 300k products the table is 52 MB and the indexes are 90 MB.
 
 ## Query plans at 300k products
 
@@ -179,30 +179,27 @@ Execution Time: 176.104 ms
 
 ### The one weak query
 
-A price range **without a category, sorted by newest** has no index that gives both the filter and the order. Postgres picks one of two plans, depending on how many products match:
+A price range **without a category, sorted by newest** is the one request no B-tree can serve completely: the filter is a range on one column and the order is on another. So `products_created_idx` carries `price_cents` as a trailing column. Postgres walks the index newest first, checks the price inside the index, and reads only the matching rows from the table.
 
-Narrow range (172 matches): fetch every match through the price index, then sort them.
-
-```
-Limit (actual time=3.831..3.835 rows=21 loops=1)
-  ->  Sort (top-N heapsort)
-        ->  Bitmap Heap Scan on products (rows=172)
-              ->  Bitmap Index Scan on products_price_idx
-                    Index Cond: ((price_cents >= 10000) AND (price_cents <= 10060))
-Execution Time: 3.881 ms
-```
-
-Medium range (about 1% of products): walk the newest-first index and throw away what doesn't match.
+Medium range (about 1% of products). Before the trailing column this plan read about 2,400 non-matching rows from the table and took 7 ms.
 
 ```
-Limit (actual time=1.246..21.400 rows=21 loops=1)
+Limit (actual time=0.009..0.434 rows=21 loops=1)
   ->  Index Scan Backward using products_created_idx on products
-        Filter: ((price_cents >= 10000) AND (price_cents <= 11000))
-        Rows Removed by Filter: 2169
-Execution Time: 21.413 ms
+        Index Cond: ((price_cents >= 10000) AND (price_cents <= 11000))
+Execution Time: 0.438 ms
 ```
 
-At 4 ms and 21 ms this is acceptable at 300k products, and the CDN absorbs repeats. It is the first query to degrade as the catalog grows: both plans cost more in proportion to the catalog size. A wide range is fast again (0.3 ms at 3%), because matches are found quickly.
+Narrow range (138 matches): the same plan, but it walks about 15% of the index to find 21 matches.
+
+```
+Limit (actual time=0.215..1.293 rows=21 loops=1)
+  ->  Index Scan Backward using products_created_idx on products
+        Index Cond: ((price_cents >= 10000) AND (price_cents <= 10060))
+Execution Time: 1.334 ms
+```
+
+What remains: the walk reads about `limit / matching fraction` index entries, so the rarer the price, the longer it gets. The worst case is a walk of the whole index, 13 ms at 300k products (measured by forcing this plan on a range with no matches), and that grows in proportion to the catalog. For very rare ranges Postgres switches to the price index and sorts the few matches instead, which is fast.
 
 ## Trade-offs
 
@@ -222,17 +219,17 @@ At 4 ms and 21 ms this is acceptable at 300k products, and the CDN absorbs repea
 - **Inventory and stock.** It belongs to another service. It changes far more often than catalog data and would ruin cache hit rates.
 - **Variants, images, multiple currencies, draft/published status, soft delete, total counts.**
 - **Redis or an in-process cache** (see [ADR-0003](docs/adr/0003-http-caching-and-staleness.md)).
-- **Rate limiting, metrics, tracing, an OpenAPI document.**
+- **Rate limiting, metrics, tracing.**
 
 ## What changes at 10M and 100M products
 
-Extrapolating from the measured sizes: about 1.7 GB of table and 2.9 GB of indexes at 10M, and about 17 GB and 29 GB at 100M.
+Extrapolating from the measured sizes: about 1.7 GB of table and 3 GB of indexes at 10M, and about 17 GB and 30 GB at 100M.
 
 **10M products**: the design holds.
 
 - One PostgreSQL primary still fits the data in memory on a mid-sized instance. Keyset pages stay at about a millisecond, because their cost depends on the page size, not the table size.
 - Add read replicas behind the CDN, and a connection pooler (PgBouncer) in front of them.
-- The weak query becomes a real problem (roughly 30× slower). Either require a category when sorting by newest with a price range, or serve it from a search read model.
+- The weak query needs attention for rare prices: its worst case, a walk of the whole newest-first index, grows from 13 ms to roughly 0.4 s. Either require a category when sorting by newest with a price range, or serve it from a search read model.
 - Bulk imports need `COPY` and batching instead of one `POST` per product.
 - Schema changes need care: build indexes with `CREATE INDEX CONCURRENTLY`.
 
