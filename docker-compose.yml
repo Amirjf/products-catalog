@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: catalog
+      POSTGRES_PASSWORD: catalog
+      POSTGRES_DB: catalog
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      # Postgres 18 keeps its data under /var/lib/postgresql/18, so mount the parent.
+      - pgdata:/var/lib/postgresql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # TCP on purpose: while the init scripts run Postgres listens only on its
+      # Unix socket, so a socket check would report "ready" before init finishes.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U catalog -d catalog"]
+      interval: 2s
+      timeout: 3s
+      retries: 90
+
+  # One-off job: applies migrations, then seeds 300k products if the table is empty.
+  migrate:
+    build: .
+    command: ["node", "dist/migrate.js"]
+    environment: &app-env
+      DATABASE_URL: postgres://catalog:catalog@db:5432/catalog
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
+      SEED: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: .
+    environment:
+      <<: *app-env
+      PORT: "3000"
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
