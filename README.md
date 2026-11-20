@@ -1,0 +1,245 @@
+# Product catalog
+
+Backend for an e-commerce product catalog: a REST API to create, read, update and delete products, and to list them with filters and pagination.
+
+It is built for the stated load: a few hundred thousand products, far more reads than writes, and listing by category and price range.
+
+- **Stack**: Node 24, TypeScript, Express 5, PostgreSQL 18, Drizzle ORM, zod.
+- **Decisions**: the five short records in [`docs/adr`](docs/adr) explain the choices that would be expensive to change.
+
+## Run it
+
+```sh
+docker compose up --build
+```
+
+This starts PostgreSQL, applies the migrations, seeds 300,000 products, and starts the API on <http://localhost:3000>. The first start takes about 30 seconds.
+
+```sh
+curl "localhost:3000/v1/products?category=phones&minPriceCents=10000&maxPriceCents=20000&sort=price_asc&limit=5"
+
+curl -X POST localhost:3000/v1/products \
+  -H "Authorization: Bearer dev-admin-token" -H "Content-Type: application/json" \
+  -d '{"sku":"TSHIRT-RED-M","name":"Red T-shirt, M","category":"shirts","priceCents":1999,"attributes":{"color":"red","size":"M"}}'
+```
+
+- If port 3000 is taken: `API_PORT=3100 docker compose up --build`.
+- PostgreSQL is published on host port **5433** (not 5432, which a local Postgres often holds). Override with `DB_PORT`.
+- To reseed from scratch: `docker compose down -v`, then start again.
+- The admin token defaults to `dev-admin-token`. Set `ADMIN_TOKEN` to change it.
+
+### Development
+
+```sh
+nvm use && npm install
+cp .env.example .env
+docker compose up -d --wait db   # database only
+npm run db:migrate               # apply migrations to the dev database
+npm run dev                      # API with reload
+npm run test:run                 # integration tests, against the catalog_test database
+npm run type-check && npm run lint && npm run format:check
+```
+
+After changing `src/db/schema.ts`, run `npm run db:generate` to write a new migration into `drizzle/`.
+
+## Terms
+
+- **Catalog**: the full set of products of one retailer. There is one catalog and no seller concept.
+- **Product**: one sellable thing with exactly one SKU. A T-shirt in S, M and L is three products; there is no variant grouping.
+- **SKU**: the retailer's own unique code for a product. It is set at creation and never changes.
+- **Category**: a lowercase slug such as `phones`. Each product has exactly one, and the list is flat.
+- **Attributes**: free-form details of a product such as color or size. Stored and returned, not filterable.
+
+## API
+
+Reads are public. Writes need `Authorization: Bearer <ADMIN_TOKEN>`.
+
+| Method and path           | What it does                 | Success                           | Errors                  |
+| ------------------------- | ---------------------------- | --------------------------------- | ----------------------- |
+| `GET /v1/products`        | List, filter, sort, paginate | `200` `{ items, nextCursor }`     | `400`                   |
+| `GET /v1/products/:id`    | Read one product             | `200`, or `304` on a matching tag | `400` `404`             |
+| `POST /v1/products`       | Create                       | `201` with `Location` and `ETag`  | `400` `401` `409`       |
+| `PATCH /v1/products/:id`  | Partial update               | `200` with `ETag`                 | `400` `401` `404` `412` |
+| `DELETE /v1/products/:id` | Delete                       | `204`                             | `400` `401` `404` `412` |
+
+**Product**
+
+```json
+{
+  "id": "019a2c5e-7b51-7974-b6eb-d973c4090000",
+  "sku": "TSHIRT-RED-M",
+  "name": "Red T-shirt, M",
+  "description": null,
+  "category": "shirts",
+  "priceCents": 1999,
+  "attributes": { "color": "red", "size": "M" },
+  "version": 1,
+  "createdAt": "2026-11-20T12:00:00.000Z",
+  "updatedAt": "2026-11-20T12:00:00.000Z"
+}
+```
+
+| Field         | Rules                                                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `sku`         | Required, unique, case-sensitive, `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`. Cannot be changed.                               |
+| `name`        | Required, 1–200 characters after trimming.                                                                              |
+| `description` | Optional, up to 5,000 characters, nullable.                                                                             |
+| `category`    | Required. Trimmed and lowercased, then must match `^[a-z0-9-]+$`.                                                       |
+| `priceCents`  | Required integer ≥ 0, in US cents. The whole catalog uses one currency (USD).                                           |
+| `attributes`  | Optional flat object: up to 32 keys of up to 64 characters; values are strings (≤ 500 characters), numbers or booleans. |
+
+**List query parameters**
+
+| Parameter                        | Meaning                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| `category`                       | Exact category.                                                                 |
+| `minPriceCents`, `maxPriceCents` | Price range, both inclusive. `400` if min is greater than max.                  |
+| `sort`                           | `newest` (default), `price_asc` or `price_desc`.                                |
+| `limit`                          | 1–100, default 20.                                                              |
+| `cursor`                         | The `nextCursor` of the previous page. `nextCursor` is `null` on the last page. |
+
+**Rules that apply everywhere**
+
+- Unknown body fields and unknown query parameters return `400`. A typo such as `pricecents` is never silently ignored.
+- `PATCH` follows JSON Merge Patch: fields that are absent stay unchanged, `"description": null` clears the description, and a `null` attribute value removes that attribute. `null` on a required field returns `400`, and so does a patch that contains `sku`.
+- Every successful write adds 1 to `version` and sets `updatedAt`.
+- **Conflicts**: `PATCH` and `DELETE` accept `If-Match: "<version>"`. If the product has changed since, the response is `412`. Without the header, the last write wins.
+- A duplicate `sku` on create returns `409`.
+- All errors have one shape: `{ "error": { "code", "message", "details"? } }`.
+- **Caching**: successful `GET`s send `Cache-Control: public, max-age=30, stale-while-revalidate=30` and an `ETag`, and answer a matching `If-None-Match` with `304`. Writes and errors send `no-store`.
+
+## Data model and indexes
+
+One table, defined in [`src/db/schema.ts`](src/db/schema.ts); the SQL is in [`drizzle/0000_init.sql`](drizzle/0000_init.sql).
+
+```
+products
+  id           uuid         primary key, default uuidv7()
+  sku          text         not null, unique
+  name         text         not null
+  description  text
+  category     text         not null, check: slug format
+  price_cents  integer      not null, check: >= 0
+  attributes   jsonb        not null, default {}, check: at most 4 KB
+  version      integer      not null, default 1
+  created_at   timestamptz(3)
+  updated_at   timestamptz(3)
+```
+
+Each combination of filter and sort has an index that returns rows already in order, with `id` as the tie-breaker:
+
+| Index                         | Serves                                               |
+| ----------------------------- | ---------------------------------------------------- |
+| `(created_at, id)`            | No category, sorted by newest                        |
+| `(price_cents, id)`           | No category, sorted by price, with or without range  |
+| `(category, created_at, id)`  | One category, sorted by newest                       |
+| `(category, price_cents, id)` | One category, sorted by price, with or without range |
+
+`price_desc` and `newest` scan these indexes backward, which is why both ORDER BY columns always go in the same direction. Four indexes make writes slower, which is the right trade when reads dominate. At 300k products the table is 52 MB and the indexes are 88 MB.
+
+## Query plans at 300k products
+
+Measured on the seeded database (PostgreSQL 18 in Docker on a laptop), with the SQL that Drizzle generates. Plans are trimmed to the relevant lines.
+
+**Category + price range, sorted by price, from a cursor**: one index range scan.
+
+```
+Limit (actual time=0.239..0.985 rows=21 loops=1)
+  ->  Index Scan using products_category_price_idx on products
+        Index Cond: ((category = 'phones') AND (price_cents >= 10000) AND (price_cents <= 20000)
+                     AND (ROW(price_cents, id) > ROW(15049, '01a1f905-…')))
+Execution Time: 1.043 ms
+```
+
+**Category, most expensive first**: the same index, scanned backward.
+
+```
+Limit (actual time=0.062..0.709 rows=21 loops=1)
+  ->  Index Scan Backward using products_category_price_idx on products
+        Index Cond: (category = 'phones')
+Execution Time: 0.716 ms
+```
+
+**No filter, newest first, a cursor 150k products deep**: depth doesn't matter.
+
+```
+Limit (actual time=0.137..0.681 rows=21 loops=1)
+  ->  Index Scan Backward using products_created_idx on products
+        Index Cond: (ROW(created_at, id) < ROW('2025-11-20 00:00:00+00', '01a1f905-…'))
+Execution Time: 0.693 ms
+```
+
+**The same depth with OFFSET**, for comparison. This is why the API has no page numbers.
+
+```
+Limit (actual time=176.087..176.095 rows=21 loops=1)
+  ->  Index Scan Backward using products_created_idx on products (rows=150021)
+Execution Time: 176.104 ms
+```
+
+### The one weak query
+
+A price range **without a category, sorted by newest** has no index that gives both the filter and the order. Postgres picks one of two plans, depending on how many products match:
+
+Narrow range (172 matches): fetch every match through the price index, then sort them.
+
+```
+Limit (actual time=3.831..3.835 rows=21 loops=1)
+  ->  Sort (top-N heapsort)
+        ->  Bitmap Heap Scan on products (rows=172)
+              ->  Bitmap Index Scan on products_price_idx
+                    Index Cond: ((price_cents >= 10000) AND (price_cents <= 10060))
+Execution Time: 3.881 ms
+```
+
+Medium range (about 1% of products): walk the newest-first index and throw away what doesn't match.
+
+```
+Limit (actual time=1.246..21.400 rows=21 loops=1)
+  ->  Index Scan Backward using products_created_idx on products
+        Filter: ((price_cents >= 10000) AND (price_cents <= 11000))
+        Rows Removed by Filter: 2169
+Execution Time: 21.413 ms
+```
+
+At 4 ms and 21 ms this is acceptable at 300k products, and the CDN absorbs repeats. It is the first query to degrade as the catalog grows: both plans cost more in proportion to the catalog size. A wide range is fast again (0.3 ms at 3%), because matches are found quickly.
+
+## Trade-offs
+
+- **No page numbers and no total count.** Keyset pagination keeps every page fast, but clients can only go to the next page.
+- **Reads can be stale.** Usually by 30 seconds or less, 60 at worst. A deleted product can still appear from a cache for that long. Anything that must be exact, such as the price charged at checkout, must not read through a cache.
+- **Conflict detection is optional.** A client that doesn't send `If-Match` can overwrite another client's change.
+- **Flat categories.** Filtering on `electronics` does not return `phones`.
+- **Attributes are not filterable**, and the 32-key limit is checked per request. After merging several patches a product can hold more than 32 keys; the 4 KB database check is the hard limit.
+- **A cursor is tied to its sort but not to its filters.** Changing the filters while reusing a cursor returns a valid page of the new filter, starting after the cursor position.
+- **Four indexes on one table** slow down writes and take more space than the table.
+
+## Deliberately not built
+
+- **Category tree.** It breaks the `(category, price)` index, because a parent category becomes a set of categories. It needs a materialized path (`ltree`) or a closure table.
+- **Keyword search.** The first step is `pg_trgm`; beyond that, a search read model in OpenSearch.
+- **Real auth.** One static admin token protects writes. A real system needs an identity provider, roles and an audit log.
+- **Inventory and stock.** It belongs to another service. It changes far more often than catalog data and would ruin cache hit rates.
+- **Variants, images, multiple currencies, draft/published status, soft delete, total counts.**
+- **Redis or an in-process cache** (see [ADR-0003](docs/adr/0003-http-caching-and-staleness.md)).
+- **Rate limiting, metrics, tracing, an OpenAPI document.**
+
+## What changes at 10M and 100M products
+
+Extrapolating from the measured sizes: about 1.7 GB of table and 2.9 GB of indexes at 10M, and about 17 GB and 29 GB at 100M.
+
+**10M products**: the design holds.
+
+- One PostgreSQL primary still fits the data in memory on a mid-sized instance. Keyset pages stay at about a millisecond, because their cost depends on the page size, not the table size.
+- Add read replicas behind the CDN, and a connection pooler (PgBouncer) in front of them.
+- The weak query becomes a real problem (roughly 30× slower). Either require a category when sorting by newest with a price range, or serve it from a search read model.
+- Bulk imports need `COPY` and batching instead of one `POST` per product.
+- Schema changes need care: build indexes with `CREATE INDEX CONCURRENTLY`.
+
+**100M products**: the write model stays, the read model changes.
+
+- PostgreSQL remains the source of truth, on a large primary, possibly partitioned by a hash of category to keep index maintenance and vacuum manageable.
+- Listing and filtering move to a dedicated search read model (OpenSearch), fed by change data capture from PostgreSQL. At this size clients also expect facets and keyword search, which B-tree indexes don't give.
+- Short TTLs stop being enough. Cache entries are purged by event (surrogate keys per product and per category), so TTLs can be long and data still fresh.
+- Lookups by id stay on PostgreSQL replicas or move to a key-value cache.
+- The API contract doesn't need to change: opaque cursors hide the pagination mechanism, so the backend behind `GET /v1/products` can be swapped.
