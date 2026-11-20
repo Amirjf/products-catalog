@@ -42,6 +42,29 @@ npm run type-check && npm run lint && npm run format:check
 
 After changing `src/db/schema.ts`, run `npm run db:generate` to write a new migration into `drizzle/`.
 
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same checks, the tests and the build on every pull request and on every push to `main`.
+
+### Layout
+
+A request goes router → controller → service, and each layer has one job.
+
+```
+src/
+  index.ts        starts the server
+  app.ts          Express app: body parsing, cache default, routes, docs, errors
+  routers/v1/     paths, and which of them need the admin token
+  controllers/    HTTP only: parse the request, set status and headers
+  validation/     zod schemas for bodies, query parameters and ids
+  services/       queries and rules; no Express types
+  db/             Drizzle schema and connection pool
+  middleware/     admin token check, error handler
+  openapi.ts      the spec behind /openapi.json and /docs
+  migrate.ts      one-off job: apply migrations, then seed
+drizzle/          generated SQL migrations
+db/               seed data, and the script that creates the test database
+docs/adr/         decision records
+```
+
 ## Terms
 
 - **Catalog**: the full set of products of one retailer. There is one catalog and no seller concept.
@@ -84,9 +107,10 @@ Reads are public. Writes need `Authorization: Bearer <ADMIN_TOKEN>`.
 | `sku`         | Required, unique, case-sensitive, `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`. Cannot be changed.                               |
 | `name`        | Required, 1–200 characters after trimming.                                                                              |
 | `description` | Optional, up to 5,000 characters, nullable.                                                                             |
-| `category`    | Required. Trimmed and lowercased, then must match `^[a-z0-9-]+$`.                                                       |
-| `priceCents`  | Required integer ≥ 0, in US cents. The whole catalog uses one currency (USD).                                           |
+| `category`    | Required. Trimmed and lowercased, then must match `^[a-z0-9-]+$`, up to 64 characters.                                  |
+| `priceCents`  | Required integer from 0 to 2,147,483,647, in US cents. The whole catalog uses one currency (USD).                       |
 | `attributes`  | Optional flat object: up to 32 keys of up to 64 characters; values are strings (≤ 500 characters), numbers or booleans. |
+|               | At most 4,000 bytes as JSON.                                                                                            |
 
 **List query parameters**
 
@@ -101,7 +125,8 @@ Reads are public. Writes need `Authorization: Bearer <ADMIN_TOKEN>`.
 **Rules that apply everywhere**
 
 - Unknown body fields and unknown query parameters return `400`. A typo such as `pricecents` is never silently ignored.
-- `PATCH` follows JSON Merge Patch: fields that are absent stay unchanged, `"description": null` clears the description, and a `null` attribute value removes that attribute. `null` on a required field returns `400`, and so does a patch that contains `sku`.
+- `PATCH` follows JSON Merge Patch: fields that are absent stay unchanged, `"description": null` clears the description, and a `null` attribute value removes that attribute. `null` on a required field returns `400`, and so does an empty patch or a patch that contains `sku`.
+- Request bodies are limited to 16 KB; a larger one returns `413`.
 - Every successful write adds 1 to `version` and sets `updatedAt`.
 - **Conflicts**: `PATCH` and `DELETE` accept `If-Match: "<version>"`. If the product has changed since, the response is `412`. Without the header, the last write wins.
 - A duplicate `sku` on create returns `409`.
@@ -110,7 +135,7 @@ Reads are public. Writes need `Authorization: Bearer <ADMIN_TOKEN>`.
 
 ## Data model and indexes
 
-One table, defined in [`src/db/schema.ts`](src/db/schema.ts); the SQL is in [`drizzle/0000_init.sql`](drizzle/0000_init.sql).
+One table, defined in [`src/db/schema.ts`](src/db/schema.ts); the SQL is in the migrations under [`drizzle/`](drizzle).
 
 ```
 products
