@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { SORTS } from "../../services/products.js";
+import { SORTS } from "../services/products.js";
 
 const sku = z
   .string()
