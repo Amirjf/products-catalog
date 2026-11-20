@@ -42,7 +42,9 @@ export const products = pgTable(
     ),
     // One index per (filter, sort) pair; id is the tie-breaker for keyset
     // pagination. price_desc scans the price indexes backward.
-    index("products_created_idx").on(t.createdAt, t.id),
+    // price_cents trails so "price range, newest first" is filtered inside the
+    // index and only matching rows are read from the table.
+    index("products_created_idx").on(t.createdAt, t.id, t.priceCents),
     index("products_price_idx").on(t.priceCents, t.id),
     index("products_category_created_idx").on(t.category, t.createdAt, t.id),
     index("products_category_price_idx").on(t.category, t.priceCents, t.id),
