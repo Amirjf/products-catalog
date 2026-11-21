@@ -1,0 +1,21 @@
+{
+  "version": "0.2",
+  "language": "en,en-GB",
+  "useGitignore": true,
+  "ignorePaths": ["package-lock.json", "drizzle"],
+  "words": [
+    "healthcheck",
+    "initcap",
+    "isready",
+    "ltree",
+    "nvmrc",
+    "pgdata",
+    "pooler",
+    "pricecents",
+    "timestamptz",
+    "trgm",
+    "TSHIRT",
+    "unparseable",
+    "uuidv"
+  ]
+}
