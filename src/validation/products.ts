@@ -17,8 +17,9 @@ const category = z
 const priceCents = z.int().min(0).max(2_147_483_647);
 const attributeValue = z.union([z.string().max(500), z.number(), z.boolean()]);
 
-// The database CHECK allows 4,096 bytes of jsonb text, which is slightly longer
-// than JSON.stringify output, so the API limit sits a little below it.
+// The database CHECK allows 4,096 bytes of jsonb text. jsonb text puts a space
+// after each colon and comma, so it is longer than JSON.stringify output, and the
+// API limit is 4,000 bytes.
 const attributesOf = <T extends z.ZodType>(value: T) =>
   z
     .record(z.string().min(1).max(64), value)

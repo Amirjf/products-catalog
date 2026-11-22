@@ -246,8 +246,8 @@ describe("update and delete", () => {
 });
 
 describe("list", () => {
-  // 45 phones at one price and one created_at (a single INSERT), plus 15 books
-  // at three other prices: every sort has to break ties on id.
+  // One INSERT creates 45 phones with the same price and created_at, and 15
+  // books at three other prices. Every sort has to break ties on id.
   beforeEach(async () => {
     const row = (i: number, category: string, priceCents: number) => ({
       category,

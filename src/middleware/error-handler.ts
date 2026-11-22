@@ -32,7 +32,7 @@ function describe(err: unknown): ErrorBody {
     };
   }
   if (err instanceof Error) {
-    // Drizzle wraps driver errors; the Postgres error is the cause.
+    // Drizzle wraps driver errors, so the PostgreSQL error is in err.cause.
     const pgError = err.cause instanceof DatabaseError ? err.cause : err;
     if (pgError instanceof DatabaseError && pgError.code === "23505") {
       return {
@@ -48,7 +48,7 @@ function describe(err: unknown): ErrorBody {
         status: 400,
       };
     }
-    // Errors from express.json (malformed JSON, body too large).
+    // express.json throws these for malformed JSON and for a body that is too large.
     if ("status" in err && typeof err.status === "number" && err.status < 500) {
       return { code: "bad_request", message: err.message, status: err.status };
     }

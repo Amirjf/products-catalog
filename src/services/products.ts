@@ -45,8 +45,8 @@ type Cursor = z.infer<typeof cursorSchema>;
 const encodeCursor = (cursor: Cursor) =>
   Buffer.from(JSON.stringify(cursor)).toString("base64url");
 
-// Row comparison, so (sort column, id) is one keyset and ties on the sort
-// column never skip or repeat a product.
+// A row comparison makes (sort column, id) one key, so ties on the sort column
+// never skip or repeat a product.
 function afterCursor(cursor: Cursor) {
   switch (cursor.sort) {
     case "newest":
@@ -170,7 +170,7 @@ function cursorFor(sort: Sort, last: Product): Cursor {
     : { lastId: last.id, lastValue: last.priceCents, sort };
 }
 
-// expectedVersion null: no precondition.
+// A null expectedVersion means no precondition.
 function matches(id: string, expectedVersion: null | number) {
   return and(
     eq(products.id, id),
@@ -180,7 +180,7 @@ function matches(id: string, expectedVersion: null | number) {
   );
 }
 
-// A conditional write touched no row: the product is either gone or changed.
+// A conditional write touched no row, so the product is either gone or has changed.
 async function missingOrStale(id: string): Promise<HttpError> {
   const exists = await db.$count(products, eq(products.id, id));
   return exists

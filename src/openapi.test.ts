@@ -19,7 +19,8 @@ it("documents every products route", async () => {
     }));
   });
 
-  // requireAdmin adds a second layer per write route, so only guard against none.
+  // Each write route has a second layer for requireAdmin, so check for at least
+  // five routes instead of an exact count.
   expect(routes.length).toBeGreaterThanOrEqual(5);
   for (const { method, path } of routes) {
     expect(paths[path]?.[method], `${method} ${path}`).toBeDefined();

@@ -1,6 +1,6 @@
-// Applies pending migrations, then (with SEED=true) loads the seed data into an
-// empty catalog. Run as a one-off job before the API starts, never from the API
-// itself, so several API instances don't race to migrate.
+// Applies pending migrations. With SEED=true, it then loads the seed data into an
+// empty catalog. It runs as a one-off job before the API starts, never inside the
+// API process, so several API instances cannot race to migrate.
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { readFile } from "node:fs/promises";
 

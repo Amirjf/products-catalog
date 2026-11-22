@@ -8,18 +8,18 @@ services:
     ports:
       - "${DB_PORT:-5433}:5432"
     volumes:
-      # Postgres 18 keeps its data under /var/lib/postgresql/18, so mount the parent.
+      # PostgreSQL 18 keeps its data under /var/lib/postgresql/18, so mount the parent.
       - pgdata:/var/lib/postgresql
       - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      # TCP on purpose: while the init scripts run Postgres listens only on its
-      # Unix socket, so a socket check would report "ready" before init finishes.
+      # Check over TCP on purpose. While the init scripts run, PostgreSQL listens
+      # only on its Unix socket, so a socket check would report "ready" too early.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U catalog -d catalog"]
       interval: 2s
       timeout: 3s
       retries: 90
 
-  # One-off job: applies migrations, then seeds 300k products if the table is empty.
+  # One-off job that applies migrations, then seeds 300,000 products if the table is empty.
   migrate:
     build: .
     command: ["node", "dist/migrate.js"]

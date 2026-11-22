@@ -6,8 +6,9 @@ import {
   patchSchema,
 } from "./validation/products.js";
 
-// Request schemas come from the zod validators, so they cannot drift. zod
-// refinements have no JSON Schema form; they are repeated in descriptions.
+// Request schemas come from the zod validators, so the spec always matches the
+// validation. zod refinements have no JSON Schema form, so the descriptions
+// repeat them.
 const input = (schema: z.ZodType) => z.toJSONSchema(schema, { io: "input" });
 
 const listQuery = input(listQuerySchema);
@@ -20,7 +21,7 @@ const error = (description: string) => ({
 });
 const etag = {
   ETag: {
-    description: 'The product version, quoted, e.g. "3".',
+    description: 'The product version in quotes, for example "3".',
     schema: { type: "string" },
   },
 };
@@ -38,13 +39,14 @@ const id = {
 };
 const ifMatch = {
   description:
-    'The ETag of the version you read, e.g. "3". The write fails with 412 if the product has changed since. Omit or send * to write unconditionally.',
+    'The ETag of the version you read, for example "3". The write fails with 412 if the product has changed since. Omit the header or send * to skip the check.',
   in: "header",
   name: "If-Match",
   schema: { type: "string" },
 };
 const ifNoneMatch = {
-  description: "An ETag from an earlier response; a match answers 304.",
+  description:
+    "An ETag from an earlier response. If it matches, the response is 304.",
   in: "header",
   name: "If-None-Match",
   schema: { type: "string" },
@@ -122,7 +124,7 @@ export const openapi = {
     "/v1/products": {
       get: {
         description:
-          "Keyset-paginated. minPriceCents must not be greater than maxPriceCents. A cursor is only valid for the sort it was issued for.",
+          "Results use keyset pagination. minPriceCents must not be greater than maxPriceCents. A cursor is only valid for the sort it was issued for.",
         parameters: [
           ...Object.entries(listQuery.properties ?? {}).map(
             ([name, schema]) => ({ in: "query", name, schema }),
@@ -136,7 +138,7 @@ export const openapi = {
                 items: { items: ref("Product"), type: "array" },
                 nextCursor: {
                   description:
-                    "Pass as cursor for the next page; null on the last.",
+                    "Pass this as cursor to get the next page. It is null on the last page.",
                   type: ["string", "null"],
                 },
               },
@@ -151,7 +153,8 @@ export const openapi = {
         summary: "List products",
       },
       post: {
-        description: "At most 32 attributes, about 4 KB in total.",
+        description:
+          "A product can have at most 32 attributes, and at most 4,000 bytes of attributes as JSON.",
         requestBody: { content: json(input(createSchema)), required: true },
         responses: {
           201: product("Created", {
@@ -194,7 +197,7 @@ export const openapi = {
       },
       patch: {
         description:
-          "JSON Merge Patch: absent fields are untouched, a null description clears it, and a null attribute value removes that attribute. The patch must not be empty. sku cannot be changed.",
+          "Follows JSON Merge Patch: absent fields are untouched, a null description clears it, and a null attribute value removes that attribute. The patch must not be empty. sku cannot be changed.",
         parameters: [id, ifMatch],
         requestBody: { content: json(input(patchSchema)), required: true },
         responses: {
