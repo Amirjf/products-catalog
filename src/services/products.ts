@@ -99,28 +99,7 @@ export async function get(id: string): Promise<Product> {
 }
 
 export async function list(query: ListQuery) {
-  const rows = await db
-    .select()
-    .from(products)
-    .where(
-      and(
-        query.category === undefined
-          ? undefined
-          : eq(products.category, query.category),
-        query.minPriceCents === undefined
-          ? undefined
-          : gte(products.priceCents, query.minPriceCents),
-        query.maxPriceCents === undefined
-          ? undefined
-          : lte(products.priceCents, query.maxPriceCents),
-        query.cursor === undefined
-          ? undefined
-          : afterCursor(decodeCursor(query.cursor, query.sort)),
-      ),
-    )
-    .orderBy(...ORDER_BY[query.sort])
-    // One extra row tells us whether there is a next page.
-    .limit(query.limit + 1);
+  const rows = await listQuery(query);
 
   const items = rows.slice(0, query.limit);
   const last = items.at(-1);
@@ -129,6 +108,33 @@ export async function list(query: ListQuery) {
       ? encodeCursor(cursorFor(query.sort, last))
       : null;
   return { items, nextCursor };
+}
+
+export function listQuery(query: ListQuery) {
+  return (
+    db
+      .select()
+      .from(products)
+      .where(
+        and(
+          query.category === undefined
+            ? undefined
+            : eq(products.category, query.category),
+          query.minPriceCents === undefined
+            ? undefined
+            : gte(products.priceCents, query.minPriceCents),
+          query.maxPriceCents === undefined
+            ? undefined
+            : lte(products.priceCents, query.maxPriceCents),
+          query.cursor === undefined
+            ? undefined
+            : afterCursor(decodeCursor(query.cursor, query.sort)),
+        ),
+      )
+      .orderBy(...ORDER_BY[query.sort])
+      // One extra row tells us whether there is a next page.
+      .limit(query.limit + 1)
+  );
 }
 
 export async function remove(

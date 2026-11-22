@@ -159,6 +159,8 @@ Each combination of filter and sort has an index that returns rows already in or
 | `(category, created_at, id)`    | One category, sorted by newest                       |
 | `(category, price_cents, id)`   | One category, sorted by price, with or without range |
 
+`src/services/products.plan.test.ts` seeds 300,000 products into `catalog_test` and fails if a list query stops using the index in this table, or reads table rows the index could have ruled out.
+
 `price_desc` and `newest` scan these indexes backward, which is why both ORDER BY columns always go in the same direction. Four indexes make writes slower, which is the right trade when reads dominate. At 300,000 products the table is 52 MB and the indexes are 90 MB.
 
 ## Query plans at 300,000 products
