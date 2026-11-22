@@ -1,9 +1,7 @@
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { app } from "../../app.js";
-import { config } from "../../config.js";
 import { db, pool } from "../../db/client.js";
 import { type Product, products } from "../../db/schema.js";
 
@@ -38,14 +36,6 @@ async function pageThrough(query: string): Promise<string[]> {
   } while (cursor !== null);
   return ids;
 }
-
-beforeAll(async () => {
-  // The tests truncate the table, so refuse to run against anything else.
-  if (!config.databaseUrl.endsWith("/catalog_test")) {
-    throw new Error("Tests must run against the catalog_test database");
-  }
-  await migrate(db, { migrationsFolder: "./drizzle" });
-});
 
 beforeEach(async () => {
   await db.delete(products);

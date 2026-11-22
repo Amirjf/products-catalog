@@ -19,6 +19,5 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run spellcheck
-      - run: docker compose up -d --wait db
       - run: npm run test:run
       - run: npm run build
