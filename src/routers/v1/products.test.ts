@@ -21,7 +21,6 @@ async function create(body: Record<string, unknown>): Promise<Product> {
   return res.body as Product;
 }
 
-// Follows nextCursor to the end and returns every id in the order served.
 async function pageThrough(query: string): Promise<string[]> {
   const ids: string[] = [];
   let cursor: null | string = null;
@@ -139,6 +138,53 @@ describe("create and read", () => {
     }
   });
 
+  it("returns 400 on malformed JSON and 413 on a body over 16 KB", async () => {
+    const malformed = await request(app)
+      .post("/v1/products")
+      .set(AUTH)
+      .set("Content-Type", "application/json")
+      .send('{"sku":');
+    const large = await request(app)
+      .post("/v1/products")
+      .set(AUTH)
+      .send({ ...phone, description: "x".repeat(17_000), sku: "A-1" });
+
+    expect(malformed.status).toBe(400);
+    expect(large.status).toBe(413);
+  });
+
+  it("returns 400 when the stored attributes would pass 4 KB", async () => {
+    const exponents = Object.fromEntries(
+      Array.from({ length: 14 }, (_, i) => [`k${String(i)}`, 1e300]),
+    );
+    const created = await request(app)
+      .post("/v1/products")
+      .set(AUTH)
+      .send({ ...phone, attributes: exponents, sku: "A-1" });
+    expect(created.status).toBe(400);
+    expect((await request(app).get("/v1/products")).body).toEqual({
+      items: [],
+      nextCursor: null,
+    });
+
+    const long = (keys: string[]) =>
+      Object.fromEntries(keys.map((key) => [key, "x".repeat(500)]));
+    const product = await create({
+      ...phone,
+      attributes: long(["a", "b", "c", "d", "e", "f", "g"]),
+      sku: "A-1",
+    });
+    const merged = await request(app)
+      .patch(`/v1/products/${product.id}`)
+      .set(AUTH)
+      .send({ attributes: long(["h", "i"]) });
+
+    expect(merged.status).toBe(400);
+    expect((await request(app).get(`/v1/products/${product.id}`)).body).toEqual(
+      product,
+    );
+  });
+
   it("returns 404 for a missing product", async () => {
     const res = await request(app).get(`/v1/products/${MISSING_ID}`);
     expect(res.status).toBe(404);
@@ -215,6 +261,21 @@ describe("update and delete", () => {
     expect(read.body).toMatchObject({ priceCents: 1, version: 2 });
   });
 
+  it("returns 412 on a malformed If-Match", async () => {
+    const product = await create({ ...phone, sku: "A-1" });
+
+    const res = await request(app)
+      .patch(`/v1/products/${product.id}`)
+      .set(AUTH)
+      .set("If-Match", "1")
+      .send({ priceCents: 1 });
+
+    expect(res.status).toBe(412);
+    expect((await request(app).get(`/v1/products/${product.id}`)).body).toEqual(
+      product,
+    );
+  });
+
   it("deletes a product, then returns 404 for it", async () => {
     const product = await create({ ...phone, sku: "A-1" });
     const url = `/v1/products/${product.id}`;
@@ -236,8 +297,6 @@ describe("update and delete", () => {
 });
 
 describe("list", () => {
-  // One INSERT creates 45 phones with the same price and created_at, and 15
-  // books at three other prices. Every sort has to break ties on id.
   beforeEach(async () => {
     const row = (i: number, category: string, priceCents: number) => ({
       category,

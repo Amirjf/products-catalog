@@ -21,7 +21,6 @@ services:
       timeout: 3s
       retries: 90
 
-  # One-off job that applies migrations, then seeds 300,000 products if the table is empty.
   migrate:
     build: .
     command: ["node", "dist/migrate.js"]

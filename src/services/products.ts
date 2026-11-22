@@ -17,7 +17,6 @@ export interface ListQuery {
 
 export type NewProduct = typeof products.$inferInsert;
 
-// A null attribute value removes that attribute.
 export interface ProductPatch {
   attributes?: Record<string, boolean | null | number | string> | undefined;
   category?: string | undefined;
@@ -45,8 +44,6 @@ type Cursor = z.infer<typeof cursorSchema>;
 const encodeCursor = (cursor: Cursor) =>
   Buffer.from(JSON.stringify(cursor)).toString("base64url");
 
-// A row comparison makes (sort column, id) one key, so ties on the sort column
-// never skip or repeat a product.
 function afterCursor(cursor: Cursor) {
   switch (cursor.sort) {
     case "newest":
@@ -79,7 +76,6 @@ function decodeCursor(raw: string, sort: Sort): Cursor {
   return parsed.data;
 }
 
-// Both columns go in the same direction so one index serves the whole ORDER BY.
 const ORDER_BY = {
   newest: [desc(products.createdAt), desc(products.id)],
   price_asc: [asc(products.priceCents), asc(products.id)],
@@ -111,30 +107,27 @@ export async function list(query: ListQuery) {
 }
 
 export function listQuery(query: ListQuery) {
-  return (
-    db
-      .select()
-      .from(products)
-      .where(
-        and(
-          query.category === undefined
-            ? undefined
-            : eq(products.category, query.category),
-          query.minPriceCents === undefined
-            ? undefined
-            : gte(products.priceCents, query.minPriceCents),
-          query.maxPriceCents === undefined
-            ? undefined
-            : lte(products.priceCents, query.maxPriceCents),
-          query.cursor === undefined
-            ? undefined
-            : afterCursor(decodeCursor(query.cursor, query.sort)),
-        ),
-      )
-      .orderBy(...ORDER_BY[query.sort])
-      // One extra row tells us whether there is a next page.
-      .limit(query.limit + 1)
-  );
+  return db
+    .select()
+    .from(products)
+    .where(
+      and(
+        query.category === undefined
+          ? undefined
+          : eq(products.category, query.category),
+        query.minPriceCents === undefined
+          ? undefined
+          : gte(products.priceCents, query.minPriceCents),
+        query.maxPriceCents === undefined
+          ? undefined
+          : lte(products.priceCents, query.maxPriceCents),
+        query.cursor === undefined
+          ? undefined
+          : afterCursor(decodeCursor(query.cursor, query.sort)),
+      ),
+    )
+    .orderBy(...ORDER_BY[query.sort])
+    .limit(query.limit + 1);
 }
 
 export async function remove(
@@ -157,7 +150,6 @@ export async function update(
     .update(products)
     .set({
       ...fields,
-      // Merge, then drop the keys the patch set to null.
       ...(attributes && {
         attributes: sql`jsonb_strip_nulls(${products.attributes} || ${JSON.stringify(attributes)}::jsonb)`,
       }),
@@ -176,7 +168,6 @@ function cursorFor(sort: Sort, last: Product): Cursor {
     : { lastId: last.id, lastValue: last.priceCents, sort };
 }
 
-// A null expectedVersion means no precondition.
 function matches(id: string, expectedVersion: null | number) {
   return and(
     eq(products.id, id),
@@ -186,7 +177,6 @@ function matches(id: string, expectedVersion: null | number) {
   );
 }
 
-// A conditional write touched no row, so the product is either gone or has changed.
 async function missingOrStale(id: string): Promise<HttpError> {
   const exists = await db.$count(products, eq(products.id, id));
   return exists

@@ -7,7 +7,6 @@ import { HttpError } from "../errors.js";
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest();
 
-// Hashing first gives both buffers the same length, which timingSafeEqual needs.
 export const requireAdmin: RequestHandler = (req, _res, next) => {
   const sent = /^Bearer (.+)$/.exec(req.get("Authorization") ?? "")?.[1] ?? "";
   if (!timingSafeEqual(sha256(sent), sha256(config.adminToken))) {

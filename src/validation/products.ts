@@ -31,9 +31,6 @@ const priceCents = z
   .meta({ description: "US cents. The whole catalog uses US dollars." });
 const attributeValue = z.union([z.string().max(500), z.number(), z.boolean()]);
 
-// The database CHECK allows 4,096 bytes of jsonb text. jsonb text puts a space
-// after each colon and comma, so it is longer than JSON.stringify output, and the
-// API limit is 4,000 bytes.
 const attributesOf = <T extends z.ZodType>(value: T) =>
   z
     .record(z.string().min(1).max(64), value)
@@ -61,9 +58,6 @@ export const createSchema = z.strictObject({
   sku,
 });
 
-// JSON Merge Patch: absent fields are untouched, null clears description, and
-// a null attribute value removes that attribute. sku is absent on purpose, so
-// strictObject rejects it.
 export const patchSchema = z
   .strictObject({
     attributes: attributesOf(attributeValue.nullable()),
