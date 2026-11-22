@@ -6,6 +6,11 @@ import { execFileSync } from "node:child_process";
 import { Pool } from "pg";
 
 export default async function setup({ config }: TestProject) {
+  if (config.maxWorkers !== 1) {
+    throw new Error(
+      "Test files share catalog_test and empty its tables, so vitest.config.js must keep fileParallelism: false.",
+    );
+  }
   const url = config.env.DATABASE_URL ?? "";
   if (!url.endsWith("/catalog_test")) {
     throw new Error(

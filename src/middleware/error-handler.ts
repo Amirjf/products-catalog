@@ -32,7 +32,6 @@ function describe(err: unknown): ErrorBody {
     };
   }
   if (err instanceof Error) {
-    // Drizzle wraps driver errors, so the PostgreSQL error is in err.cause.
     const pgError = err.cause instanceof DatabaseError ? err.cause : err;
     if (pgError instanceof DatabaseError && pgError.code === "23505") {
       return {
@@ -48,7 +47,6 @@ function describe(err: unknown): ErrorBody {
         status: 400,
       };
     }
-    // express.json throws these for malformed JSON and for a body that is too large.
     if ("status" in err && typeof err.status === "number" && err.status < 500) {
       return { code: "bad_request", message: err.message, status: err.status };
     }
@@ -60,8 +58,6 @@ function describe(err: unknown): ErrorBody {
   };
 }
 
-// Express recognises an error handler by its four parameters.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   const { status, ...error } = describe(err);
   if (status >= 500) console.error(err);

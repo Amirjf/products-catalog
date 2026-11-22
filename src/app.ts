@@ -10,7 +10,6 @@ export const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "16kb" }));
 
-// Every response defaults to no-store. The read controllers override it on success.
 app.use((_req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();

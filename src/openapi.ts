@@ -7,8 +7,6 @@ import {
   patchSchema,
 } from "./validation/products.js";
 
-// Request schemas come from the zod validators, so the spec always matches the
-// validation.
 const input = (schema: z.ZodType) => z.toJSONSchema(schema, { io: "input" });
 
 const listQuery = input(listQuerySchema);

@@ -1,5 +1,3 @@
--- Seeds 300,000 products in 40 categories with 2,000 distinct prices, so about
--- 150 products share each price. created_at is spread over the last two years.
 INSERT INTO products (sku, name, description, category, price_cents, attributes, created_at, updated_at)
 SELECT
   'SKU-' || lpad(i::text, 7, '0'),
