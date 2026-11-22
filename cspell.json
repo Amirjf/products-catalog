@@ -2,7 +2,7 @@
   "version": "0.2",
   "language": "en,en-GB",
   "useGitignore": true,
-  "ignorePaths": ["package-lock.json", "drizzle"],
+  "ignorePaths": [".git", "package-lock.json", "drizzle"],
   "words": [
     "healthcheck",
     "initcap",
