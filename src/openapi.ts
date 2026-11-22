@@ -8,8 +8,7 @@ import {
 } from "./validation/products.js";
 
 // Request schemas come from the zod validators, so the spec always matches the
-// validation. zod refinements have no JSON Schema form, so the descriptions
-// repeat them.
+// validation.
 const input = (schema: z.ZodType) => z.toJSONSchema(schema, { io: "input" });
 
 const listQuery = input(listQuerySchema);
@@ -70,8 +69,7 @@ interface Operation {
 const operations = {
   "/": {
     get: {
-      description:
-        "Results use keyset pagination. minPriceCents must not be greater than maxPriceCents. A cursor is only valid for the sort it was issued for.",
+      description: "Results use keyset pagination.",
       parameters: [
         ...Object.entries(listQuery.properties ?? {}).map(([name, schema]) => ({
           in: "query",
@@ -102,8 +100,6 @@ const operations = {
       summary: "List products",
     },
     post: {
-      description:
-        "A product can have at most 32 attributes, and at most 4,000 bytes of attributes as JSON.",
       requestBody: { content: json(input(createSchema)), required: true },
       responses: {
         201: product("Created", {
