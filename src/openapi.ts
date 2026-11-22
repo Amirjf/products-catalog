@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isWrite, productRoutes } from "./routers/v1/products.js";
 import {
   createSchema,
   listQuerySchema,
@@ -57,6 +58,128 @@ const unauthorized = error("Missing or invalid admin token");
 const missing = error("Product not found");
 const stale = error("Product has changed since the If-Match version");
 const admin = [{ adminToken: [] }];
+
+interface Operation {
+  description?: string;
+  parameters?: object[];
+  requestBody?: object;
+  responses: Record<number, object>;
+  summary: string;
+}
+
+const operations = {
+  "/": {
+    get: {
+      description:
+        "Results use keyset pagination. minPriceCents must not be greater than maxPriceCents. A cursor is only valid for the sort it was issued for.",
+      parameters: [
+        ...Object.entries(listQuery.properties ?? {}).map(([name, schema]) => ({
+          in: "query",
+          name,
+          schema,
+        })),
+        ifNoneMatch,
+      ],
+      responses: {
+        200: {
+          content: json({
+            properties: {
+              items: { items: ref("Product"), type: "array" },
+              nextCursor: {
+                description:
+                  "Pass this as cursor to get the next page. It is null on the last page.",
+                type: ["string", "null"],
+              },
+            },
+            required: ["items", "nextCursor"],
+            type: "object",
+          }),
+          description: "A page of products",
+        },
+        304: { description: "Not modified" },
+        400: error("Invalid query or cursor"),
+      },
+      summary: "List products",
+    },
+    post: {
+      description:
+        "A product can have at most 32 attributes, and at most 4,000 bytes of attributes as JSON.",
+      requestBody: { content: json(input(createSchema)), required: true },
+      responses: {
+        201: product("Created", {
+          ...etag,
+          Location: {
+            description: "URL of the new product",
+            schema: { type: "string" },
+          },
+        }),
+        400: invalid,
+        409: error("A product with this sku already exists"),
+      },
+      summary: "Create a product",
+    },
+  },
+  "/:id": {
+    delete: {
+      parameters: [id, ifMatch],
+      responses: {
+        204: { description: "Deleted" },
+        400: invalid,
+        404: missing,
+        412: stale,
+      },
+      summary: "Delete a product",
+    },
+    get: {
+      parameters: [id, ifNoneMatch],
+      responses: {
+        200: product("The product"),
+        304: { description: "Not modified" },
+        400: invalid,
+        404: missing,
+      },
+      summary: "Get a product",
+    },
+    patch: {
+      description:
+        "Follows JSON Merge Patch: absent fields are untouched, a null description clears it, and a null attribute value removes that attribute. The patch must not be empty. sku cannot be changed.",
+      parameters: [id, ifMatch],
+      requestBody: { content: json(input(patchSchema)), required: true },
+      responses: {
+        200: product("The updated product"),
+        400: invalid,
+        404: missing,
+        412: stale,
+      },
+      summary: "Update a product",
+    },
+  },
+} satisfies {
+  [Path in keyof typeof productRoutes]: Record<
+    keyof (typeof productRoutes)[Path],
+    Operation
+  >;
+};
+
+const paths = Object.fromEntries(
+  Object.entries(operations).map(([path, methods]) => [
+    `/v1/products${path}`.replace(/\/$/, "").replace(/:(\w+)/g, "{$1}"),
+    Object.fromEntries(
+      Object.entries(methods).map(
+        ([method, operation]: [string, Operation]) => [
+          method,
+          isWrite(method)
+            ? {
+                ...operation,
+                responses: { ...operation.responses, 401: unauthorized },
+                security: admin,
+              }
+            : operation,
+        ],
+      ),
+    ),
+  ]),
+);
 
 export const openapi = {
   components: {
@@ -120,96 +243,5 @@ export const openapi = {
   },
   info: { title: "Products catalog", version: "1.0.0" },
   openapi: "3.1.0",
-  paths: {
-    "/v1/products": {
-      get: {
-        description:
-          "Results use keyset pagination. minPriceCents must not be greater than maxPriceCents. A cursor is only valid for the sort it was issued for.",
-        parameters: [
-          ...Object.entries(listQuery.properties ?? {}).map(
-            ([name, schema]) => ({ in: "query", name, schema }),
-          ),
-          ifNoneMatch,
-        ],
-        responses: {
-          200: {
-            content: json({
-              properties: {
-                items: { items: ref("Product"), type: "array" },
-                nextCursor: {
-                  description:
-                    "Pass this as cursor to get the next page. It is null on the last page.",
-                  type: ["string", "null"],
-                },
-              },
-              required: ["items", "nextCursor"],
-              type: "object",
-            }),
-            description: "A page of products",
-          },
-          304: { description: "Not modified" },
-          400: error("Invalid query or cursor"),
-        },
-        summary: "List products",
-      },
-      post: {
-        description:
-          "A product can have at most 32 attributes, and at most 4,000 bytes of attributes as JSON.",
-        requestBody: { content: json(input(createSchema)), required: true },
-        responses: {
-          201: product("Created", {
-            ...etag,
-            Location: {
-              description: "URL of the new product",
-              schema: { type: "string" },
-            },
-          }),
-          400: invalid,
-          401: unauthorized,
-          409: error("A product with this sku already exists"),
-        },
-        security: admin,
-        summary: "Create a product",
-      },
-    },
-    "/v1/products/{id}": {
-      delete: {
-        parameters: [id, ifMatch],
-        responses: {
-          204: { description: "Deleted" },
-          400: invalid,
-          401: unauthorized,
-          404: missing,
-          412: stale,
-        },
-        security: admin,
-        summary: "Delete a product",
-      },
-      get: {
-        parameters: [id, ifNoneMatch],
-        responses: {
-          200: product("The product"),
-          304: { description: "Not modified" },
-          400: invalid,
-          404: missing,
-        },
-        summary: "Get a product",
-      },
-      patch: {
-        description:
-          "Follows JSON Merge Patch: absent fields are untouched, a null description clears it, and a null attribute value removes that attribute. The patch must not be empty. sku cannot be changed.",
-        parameters: [id, ifMatch],
-        requestBody: { content: json(input(patchSchema)), required: true },
-        responses: {
-          200: product("The updated product"),
-          400: invalid,
-          401: unauthorized,
-          404: missing,
-          412: stale,
-        },
-        security: admin,
-        summary: "Update a product",
-      },
-    },
-  },
+  paths,
 };
