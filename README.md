@@ -51,7 +51,7 @@ A request passes from the router to the controller, then to the service.
 src/
   index.ts        starts the server
   app.ts          Express app: body parsing, cache default, routes, docs, errors
-  routers/v1/     paths, and which of them need the admin token
+  routers/v1/     the route table; every method except GET needs the admin token
   controllers/    HTTP only: parse the request, set status and headers
   validation/     zod schemas for bodies, query parameters and ids
   services/       queries and rules; no Express types
