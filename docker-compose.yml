@@ -1,3 +1,5 @@
+name: products-catalog
+
 services:
   db:
     image: postgres:18
