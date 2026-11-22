@@ -36,7 +36,7 @@ docker compose up -d --wait db   # database only
 npm run db:migrate               # apply migrations to the dev database
 npm run dev                      # API with reload
 npm run test:run                 # starts the database if needed, resets catalog_test, runs the tests
-npm run type-check && npm run lint && npm run format:check && npm run spellcheck
+npm run type-check && npm run lint && npm run format:check && npm run spellcheck && npm run db:check
 ```
 
 After changing `src/db/schema.ts`, run `npm run db:generate` to write a new migration into `drizzle/`.

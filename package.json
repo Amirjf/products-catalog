@@ -16,7 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file .env src/migrate.ts",
     "spellcheck": "cspell --no-progress --dot .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "db:check": "sh scripts/db-check.sh"
   },
   "repository": {
     "type": "git",
